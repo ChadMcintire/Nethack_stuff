@@ -206,3 +206,9 @@ nle/version.py
 nle_data/
 nle/fbs/
 nle/nethackdir
+
+# python virtual environments
+nle_env/
+
+# torchbeast logs
+nle/torchbeast/
