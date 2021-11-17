@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# CopGo!vern@ment#yright (c) Facebook, Inc. and its affiliates.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -73,6 +73,10 @@ parser.add_argument("--disable_cuda", action="store_true",
                     help="Disable CUDA.")
 parser.add_argument("--use_lstm", action="store_true",
                     help="Use LSTM in agent model.")
+parser.add_argument("--load_model", action="store_true",
+                    help="Load from latest/model.tar")
+parser.add_argument("--char_type", type=str, default="mon-hum-neu-mal",
+                    help="i.e. val-dwa-law-fem")
 
 # Loss settings.
 parser.add_argument("--entropy_cost", default=0.0006,
@@ -153,7 +157,7 @@ def act(
     try:
         logging.info("Actor %i started.", actor_index)
 
-        gym_env = create_env(flags.env, savedir=flags.rundir)
+        gym_env = create_env(flags.env, savedir=flags.rundir, character=flags.char_type)
         env = ResettingEnvironment(gym_env)
         env_output = env.initial()
         agent_state = model.initial_state(batch_size=1)
@@ -408,6 +412,7 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
 
     logfile = open(os.path.join(rundir, "logs.tsv"), "a", buffering=1)
     checkpointpath = os.path.join(rundir, "model.tar")
+    load_path = "/home/chad/torchbeast/torchbeast-20211109-004209/model.tar"
 
     flags.rundir = rundir
 
@@ -429,12 +434,17 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
         logging.info("Not using CUDA.")
         flags.device = torch.device("cpu")
 
-    env = create_env(flags.env)
+    env = create_env(flags.env, character=flags.char_type)
     observation_space = env.observation_space
     action_space = env.action_space
     del env  # End this before forking.
 
     model = Net(observation_space, action_space.n, flags.use_lstm)
+    if flags.load_model:
+        checkpoint = torch.load(load_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.train()
+
     buffers = create_buffers(flags, observation_space, model.num_actions)
 
     model.share_memory()
@@ -482,10 +492,17 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
         alpha=flags.alpha,
     )
 
+    if flags.load_model:
+        checkpoint = torch.load(load_path)
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
     def lr_lambda(epoch):
         return 1 - min(epoch * T * B, flags.total_steps) / flags.total_steps
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    if flags.load_model:
+        checkpoint = torch.load(load_path)
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
 
     stat_keys = [
         "total_loss",
@@ -531,9 +548,11 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
     def checkpoint():
         if flags.disable_checkpoint:
             return
+        print("\n\ncheckpoint\n\n")
         logging.info("Saving checkpoint to %s", checkpointpath)
         torch.save(
             {
+                "epoch": step,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
@@ -551,6 +570,7 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
             time.sleep(5)
 
             if timer() - last_checkpoint_time > 10 * 60:  # Save every 10 min.
+                # if timer() - last_checkpoint_time > 30 * 60:  # Save every 10 min.
                 checkpoint()
                 last_checkpoint_time = timer()
 
@@ -587,16 +607,42 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
     logfile.close()
 
 
-def test(flags, num_episodes=10):
+def test(flags, num_episodes=1):
     flags.savedir = os.path.expandvars(os.path.expanduser(flags.savedir))
     checkpointpath = os.path.join(flags.savedir, "latest", "model.tar")
 
-    gym_env = create_env(flags.env)
+    # flags.savedir = "/home/chad/Documents/ReinformentLearningStuff/gymstuff/nle/nle"
+    # flags.savedir = "/home/chad/torchbeast/torchbeast-20211105-192441"
+    # checkpointpath = os.path.join(flags.savedir, "model.tar")
+
+    # gym_env = create_env(flags.env, character=flags.char_type,
+    # observation_keys=("glyphs", "blstats", "tty_chars", "tty_colors"))
+    gym_env = gym.make(
+        flags.env,
+        character=flags.char_type,
+        observation_keys=("glyphs", "blstats", "tty_chars", "tty_colors", "tty_cursor"),
+    )
     env = ResettingEnvironment(gym_env)
     model = Net(gym_env.observation_space, gym_env.action_space.n, flags.use_lstm)
     model.eval()
-    checkpoint = torch.load(checkpointpath, map_location="cpu")
-    model.load_state_dict(checkpoint["model_state_dict"])
+    for key in model.state_dict().keys():
+        print(key)
+    # checkpoint = torch.load(checkpointpath, map_location="cpu")
+    state_dict = torch.load(checkpointpath, map_location="cpu")
+    # from collections import OrderedDict
+    # new_state_dict = OrderedDict()
+    # for k in state_dict["model_state_dict"]:
+    #    print(k)
+    #    #name = k[7:] # remove `module.`
+    #    if "core" in k:
+    #        print("core")
+    #        pass
+    #    else:
+    #        new_state_dict[k] = state_dict["model_state_dict"][k]
+    # model.load_state_dict(checkpoint["model_state_dict"])
+    # model.load_state_dict(checkpoint["model_state_dict"])
+    # model.load_state_dict(new_state_dict)
+    model.load_state_dict(state_dict["model_state_dict"])
 
     observation = env.initial()
     returns = []
@@ -608,6 +654,7 @@ def test(flags, num_episodes=10):
             env.gym_env.render()
         policy_outputs, agent_state = model(observation, agent_state)
         observation = env.step(policy_outputs["action"])
+        print(policy_outputs["action"])
         if observation["done"].item():
             returns.append(observation["episode_return"].item())
             logging.info(
