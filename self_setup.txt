@@ -1,0 +1,39 @@
+#set up cuda
+pip3 install torch==1.10.0+cu113 torchvision==0.11.1+cu113 torchaudio==0.10.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+
+#set up gnuplot
+sudo apt-get update -y
+sudo apt-get install -y gnuplot
+
+install gnuplotlib for python wrapper
+pip3 install gnuplotlib
+
+install pandas
+pip3 install pandas
+
+#use torch beast
+python -m nle.agent.agent --num_actors 9 --batch_size 32 --unroll_length 80 --learning_rate 0.0001 --entropy_cost 0.0001 --use_lstm --total_steps 1000000000 --char_type val-dwa-law-fem --env NetHackStaircase-v0
+
+python -m nle.agent.agent --num_actors 9 --batch_size 32 --unroll_length 80 --learning_rate 0.0002 --entropy_cost 0.0001 --use_lstm --total_steps 1000000000 --char_type val-dwa-law-fem --env NetHackStaircase-v0 --epsilon 0.000001
+
+#changed to the original hyper-parameters
+python -m nle.agent.agent --num_actors 9 --batch_size 32 --unroll_length 80 --learning_rate 0.0002 --entropy_cost 0.0001 --use_lstm --total_steps 1000000000 --char_type mon-hum-neu-mal --env NetHackScore-v0 --epsilon 0.000001
+
+#load a previous model #this was the longest trained model. need to find number to put here
+python -m nle.agent.agent --num_actors 9 --batch_size 32 --unroll_length 80 --learning_rate 0.0002 --entropy_cost 0.0001 --use_lstm --total_steps 1000000000 --char_type mon-hum-neu-mal --env NetHackScore-v0 --epsilon 0.000001 --load_model
+
+#newest attempt
+python -m nle.agent.agent --num_actors 9 --batch_size 32 --unroll_length 100 --learning_rate 0.0004 --entropy_cost 0.0001 --use_lstm --total_steps 1000000000 --char_type mon-hum-neu-mal --env NetHackScore-v0 --epsilon 0.00001 --alpha .99
+
+#remember to get new agent epsilon after it runs
+
+python -m nle.agent.agent --mode test_render --use_lstm --char_type val-dwa-law-fem
+
+#plot the average returns over time
+python -m nle.scripts.plot
+
+#expand the sizes
+python -m nle.scripts.plot -x=100 -y=50
+
+#get the last several values of the table
+tail ~/torchbeast/torchbeast-20211107-013918/logs.tsv
