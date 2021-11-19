@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 # This is an example self-contained agent running NLE based on MonoBeast.
 
 import argparse
@@ -22,6 +23,7 @@ import threading
 import time
 import timeit
 import traceback
+from .utils.graphs import GraphBuilder
 
 # Necessary for multithreading.
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -102,6 +104,11 @@ parser.add_argument("--grad_norm_clipping", default=40.0, type=float,
                     help="Global gradient norm clip.")
 # yapf: enable
 
+
+# Test settings.
+parser.add_argument("--heatmap", default="heat_none", type=str,
+                    choices=["heat_all", "heat_none", "heat_search", "heat_pos"],
+                    help="Heat maps to generate")
 
 logging.basicConfig(
     format=(
@@ -350,13 +357,15 @@ class ResettingEnvironment:
         self.episode_step = torch.zeros(1, 1, dtype=torch.int32)
         initial_done = torch.ones(1, 1, dtype=torch.uint8)
 
-        result = _format_observations(self.gym_env.reset())
+        observation = self.gym_env.reset()
+        result = _format_observations(observation)
         result.update(
             reward=initial_reward,
             done=initial_done,
             episode_return=self.episode_return,
             episode_step=self.episode_step,
             last_action=initial_last_action,
+
         )
         return result
 
@@ -581,6 +590,7 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
                 )
             else:
                 mean_return = ""
+                mean_return = ""
             total_loss = stats.get("total_loss", float("inf"))
             logging.info(
                 "Steps %i @ %.1f SPS. Loss %f. %sStats:\n%s",
@@ -620,13 +630,14 @@ def test(flags, num_episodes=1):
     gym_env = gym.make(
         flags.env,
         character=flags.char_type,
-        observation_keys=("glyphs", "blstats", "tty_chars", "tty_colors", "tty_cursor"),
+        observation_keys=("glyphs", "chars", "blstats", "tty_chars", "tty_colors", "tty_cursor"),
     )
     env = ResettingEnvironment(gym_env)
     model = Net(gym_env.observation_space, gym_env.action_space.n, flags.use_lstm)
     model.eval()
     for key in model.state_dict().keys():
         print(key)
+
     # checkpoint = torch.load(checkpointpath, map_location="cpu")
     state_dict = torch.load(checkpointpath, map_location="cpu")
     # from collections import OrderedDict
@@ -649,7 +660,21 @@ def test(flags, num_episodes=1):
 
     agent_state = model.initial_state(batch_size=1)
 
+    # blstats for heat map
+    # blstats = observation['blstats'].numpy()[0][0]
+    # pos = "(%s, %s)" % (blstats[0], blstats[1])
+    g_builder = GraphBuilder([flags.heatmap])
+    if flags.heatmap == "heat_pos":
+        all_pos = []
+
     while len(returns) < num_episodes:
+        if flags.heatmap == "heat_pos":
+            # blstats for heat map
+            blstats = observation['blstats'].numpy()[0][0]
+            pos = tuple((blstats[0], blstats[1]))
+            all_pos.append(pos)
+            print("Position: %s" % str(pos))
+
         if flags.mode == "test_render":
             env.gym_env.render()
         policy_outputs, agent_state = model(observation, agent_state)
@@ -663,9 +688,14 @@ def test(flags, num_episodes=1):
                 observation["episode_return"].item(),
             )
     env.close()
-    logging.info(
-        "Average returns over %i steps: %.1f", num_episodes, sum(returns) / len(returns)
-    )
+    # logging.info(
+    #     "Average returns over %i steps: %.1f", num_episodes, sum(returns) / len(returns)
+    # )
+
+    # build and display heatmap
+    if flags.heatmap == "heat_pos":
+        g_builder.add_data(flags.heatmap, all_pos)
+        g_builder.render_graphs()
 
 
 class RandomNet(nn.Module):
