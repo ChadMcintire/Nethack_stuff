@@ -23,7 +23,7 @@ import threading
 import time
 import timeit
 import traceback
-from .utils.graphs import GraphBuilder
+from .utils.graphs import *
 
 # Necessary for multithreading.
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -618,6 +618,7 @@ def train(flags):  # pylint: disable=too-many-branches, too-many-statements
 
 
 def test(flags, num_episodes=1):
+
     flags.savedir = os.path.expandvars(os.path.expanduser(flags.savedir))
     checkpointpath = os.path.join(flags.savedir, "latest", "model.tar")
 
@@ -663,17 +664,17 @@ def test(flags, num_episodes=1):
     # blstats for heat map
     # blstats = observation['blstats'].numpy()[0][0]
     # pos = "(%s, %s)" % (blstats[0], blstats[1])
+
     g_builder = GraphBuilder([flags.heatmap])
     if flags.heatmap == "heat_pos":
-        all_pos = []
+        g_type = "heat_pos"
 
     while len(returns) < num_episodes:
         if flags.heatmap == "heat_pos":
             # blstats for heat map
             blstats = observation['blstats'].numpy()[0][0]
             pos = tuple((blstats[0], blstats[1]))
-            all_pos.append(pos)
-            print("Position: %s" % str(pos))
+            g_builder.append_point(g_type, pos)
 
         if flags.mode == "test_render":
             env.gym_env.render()
@@ -694,8 +695,11 @@ def test(flags, num_episodes=1):
 
     # build and display heatmap
     if flags.heatmap == "heat_pos":
-        g_builder.add_data(flags.heatmap, all_pos)
-        g_builder.render_graphs()
+        loc = flags.savedir
+        g_builder.save_graphs(loc=loc)
+        # debugg and testing
+        import numpy as np
+        np.save(file=loc+"/arr", arr=g_builder.graphs_data[g_type])
 
 
 class RandomNet(nn.Module):
